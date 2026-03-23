@@ -1,0 +1,869 @@
+{% extends "base.html" %}
+{% block title %}Consultas SQL · CNPJ{% endblock %}
+{% block page_name %}Consultas SQL{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+.query-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 20px;
+  min-height: calc(100vh - 130px);
+}
+
+/* Sidebar of saved queries */
+.saved-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.saved-item {
+  padding: 12px 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all .15s;
+  border-left: 3px solid transparent;
+}
+.saved-item:hover { border-color: var(--muted); }
+.saved-item.active {
+  border-left-color: var(--accent);
+  background: rgba(0,229,255,.05);
+}
+.saved-item-label {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+.saved-item-desc {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+/* SQL editor */
+.editor-wrap {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.editor-wrap:focus-within { border-color: var(--accent); }
+#sql-editor {
+  width: 100%;
+  min-height: 150px;
+  background: #080a0d;
+  color: #a5f3fc;
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 16px;
+  border: none;
+  outline: none;
+  resize: vertical;
+  line-height: 1.7;
+}
+
+/* Results table */
+.results-section { margin-top: 20px; }
+.result-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.result-count {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+#results-table-wrap {
+  overflow-x: auto;
+  overflow-y: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  max-height: calc(100vh - 380px);
+  min-height: 120px;
+  width: 100%;
+  position: relative;
+}
+#results-table-wrap table {
+  min-width: 100%;
+  width: max-content;
+  border-collapse: collapse;
+}
+#results-table-wrap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
+  white-space: nowrap;
+}
+#results-table-wrap tbody td {
+  white-space: nowrap;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Loading overlay */
+.loading-overlay {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.export-btn {
+  margin-left: auto;
+}
+
+/* ── Result meta bar ─────────────────────────────────── */
+.result-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.result-meta .export-group {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.result-meta .card-title {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.result-meta .result-count {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* ── Filter Modal ───────────────────────────────────── */
+.modal-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.7);
+  backdrop-filter: blur(4px);
+  z-index: 200;
+  align-items: center;
+  justify-content: center;
+}
+.modal-backdrop.open { display: flex; }
+
+.modal-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 680px;
+  max-width: 95vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 24px 64px rgba(0,0,0,.6);
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-head h3 {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -.02em;
+}
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: color .15s;
+}
+.modal-close:hover { color: var(--text); }
+
+.modal-body { padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+
+.filter-group label {
+  display: block;
+  font-size: 11px;
+  font-family: var(--mono);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.uf-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.uf-chip {
+  padding: 4px 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 12px;
+  font-family: var(--mono);
+  cursor: pointer;
+  user-select: none;
+  transition: all .12s;
+  color: var(--muted);
+}
+.uf-chip:hover { border-color: var(--accent); color: var(--accent); }
+.uf-chip.selected {
+  background: rgba(0,229,255,.12);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.date-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.filter-input {
+  width: 100%;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 8px 12px;
+  outline: none;
+  transition: border-color .15s;
+}
+.filter-input:focus { border-color: var(--accent); }
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+.toggle-switch {
+  width: 40px; height: 22px;
+  background: var(--border);
+  border-radius: 11px;
+  position: relative;
+  transition: background .2s;
+  flex-shrink: 0;
+}
+.toggle-switch.on { background: var(--accent); }
+.toggle-switch::after {
+  content: '';
+  position: absolute;
+  width: 16px; height: 16px;
+  background: white;
+  border-radius: 50%;
+  top: 3px; left: 3px;
+  transition: left .2s;
+}
+.toggle-switch.on::after { left: 21px; }
+.toggle-label { font-size: 13px; }
+
+.tel-chips { display: flex; gap: 8px; }
+.tel-chip {
+  padding: 6px 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: var(--mono);
+  cursor: pointer;
+  transition: all .12s;
+  color: var(--muted);
+}
+.tel-chip:hover { border-color: var(--accent); color: var(--accent); }
+.tel-chip.selected {
+  background: rgba(0,229,255,.12);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.limit-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.limit-row input[type=range] {
+  flex: 1;
+  accent-color: var(--accent);
+}
+.limit-val {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--accent);
+  min-width: 50px;
+  text-align: right;
+}
+
+.modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+}
+
+.active-filters-bar {
+  display: none;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.filter-tag {
+  padding: 3px 10px;
+  background: rgba(0,229,255,.08);
+  border: 1px solid rgba(0,229,255,.25);
+  border-radius: 20px;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--accent);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:24px; display:flex; align-items:center; justify-content:space-between;">
+  <div>
+    <h2 style="font-size:28px; font-weight:800; letter-spacing:-.03em; margin-bottom:4px;">
+      Consultas SQL
+    </h2>
+    <p style="color:var(--muted); font-size:14px;">
+      Execute consultas SELECT no banco de dados CNPJ.
+    </p>
+  </div>
+</div>
+
+<div class="query-layout">
+
+  <!-- Saved queries sidebar -->
+  <div>
+    <div style="font-size:10px; letter-spacing:.15em; text-transform:uppercase; color:var(--muted);
+                font-family:var(--mono); margin-bottom:10px;">
+      Consultas Salvas
+    </div>
+    <div class="saved-panel">
+      {% for key, q in saved_queries.items() %}
+      <div class="saved-item" data-key="{{ key }}" onclick="loadSaved('{{ key }}', this)">
+        <div class="saved-item-label">{{ q.label }}</div>
+        <div class="saved-item-desc">{{ q.description }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Editor + results -->
+  <div>
+    <!-- Editor -->
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-header">
+        <span class="card-title">⌖ Editor SQL</span>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <span style="font-family:var(--mono); font-size:11px; color:var(--muted);">
+            Apenas SELECT
+          </span>
+          <button class="btn btn-ghost btn-sm" onclick="clearEditor()">✕ Limpar</button>
+          <button class="btn btn-primary" onclick="runQuery()" id="run-btn">
+            ▶ Executar
+          </button>
+        </div>
+      </div>
+      <div class="editor-wrap">
+        <textarea id="sql-editor" spellcheck="false"
+          placeholder="SELECT * FROM empresas LIMIT 100;"
+          onkeydown="handleKeydown(event)"></textarea>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div class="results-section" id="results-section" style="display:none;">
+      <div class="active-filters-bar" id="active-filters-bar"></div>
+      <div class="result-meta">
+        <div class="export-group">
+          <button class="btn btn-ghost btn-sm" onclick="exportCSV()">↓ CSV</button>
+          <button class="btn btn-primary btn-sm" onclick="exportXLSX()">↓ XLSX</button>
+        </div>
+        <span class="card-title">📊 Resultados</span>
+        <span class="result-count" id="result-count"></span>
+      </div>
+
+      <div class="loading-overlay" id="loading">
+        <span class="spinner"></span> Executando consulta...
+      </div>
+
+      <div id="results-table-wrap"></div>
+    </div>
+
+    <div id="error-box" style="display:none; margin-top:16px; padding:14px 16px;
+      background:rgba(239,68,68,.08); border:1px solid var(--danger); border-radius:6px;
+      color:var(--danger); font-family:var(--mono); font-size:13px;">
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Modal de Filtros (Consulta Completa) ──────────────────────────────── -->
+<div class="modal-backdrop" id="filter-modal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>🔍 Filtros — Consulta Completa</h3>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- UF -->
+      <div class="filter-group">
+        <label>Estado (UF)</label>
+        <div style="display:flex; gap:8px; margin-bottom:8px;">
+          <button class="btn btn-ghost btn-sm" onclick="selectAllUF()">Todos</button>
+          <button class="btn btn-ghost btn-sm" onclick="clearUF()">Limpar</button>
+        </div>
+        <div class="uf-grid" id="uf-grid"></div>
+      </div>
+
+      <!-- Período de abertura -->
+      <div class="filter-group">
+        <label>Período de Abertura</label>
+        <div class="date-row">
+          <div>
+            <div style="font-size:11px; color:var(--muted); font-family:var(--mono); margin-bottom:4px;">De</div>
+            <input type="date" class="filter-input" id="f-data-ini">
+          </div>
+          <div>
+            <div style="font-size:11px; color:var(--muted); font-family:var(--mono); margin-bottom:4px;">Até</div>
+            <input type="date" class="filter-input" id="f-data-fim">
+          </div>
+        </div>
+      </div>
+
+      <!-- LTDA toggle -->
+      <div class="filter-group">
+        <label>Tipo de Empresa</label>
+        <div class="toggle-row" onclick="toggleLtda()">
+          <div class="toggle-switch" id="toggle-ltda"></div>
+          <span class="toggle-label">Apenas <strong>LTDA</strong> (filtra pela razão social)</span>
+        </div>
+      </div>
+
+      <!-- Tipo de telefone -->
+      <div class="filter-group">
+        <label>Tipo de Telefone 1</label>
+        <div class="tel-chips">
+          <div class="tel-chip selected" data-val="" onclick="selectTel(this)">Todos</div>
+          <div class="tel-chip" data-val="Fixo" onclick="selectTel(this)">📞 Fixo</div>
+          <div class="tel-chip" data-val="Celular" onclick="selectTel(this)">📱 Celular</div>
+        </div>
+      </div>
+
+      <!-- Opções de deduplicação e qualidade -->
+      <div class="filter-group">
+        <label>Qualidade dos dados</label>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <div class="toggle-row" onclick="toggleOpt('sem_cnpj_duplicado')">
+            <div class="toggle-switch" id="toggle-sem_cnpj_duplicado"></div>
+            <span class="toggle-label">Sem CNPJ duplicado <span style="color:var(--muted);font-size:11px;">(1 linha por empresa)</span></span>
+          </div>
+          <div class="toggle-row" onclick="toggleOpt('sem_tel_duplicado')">
+            <div class="toggle-switch" id="toggle-sem_tel_duplicado"></div>
+            <span class="toggle-label">Sem telefone duplicado <span style="color:var(--muted);font-size:11px;">(1 linha por número)</span></span>
+          </div>
+          <div class="toggle-row" onclick="toggleOpt('sem_tel_vazio')">
+            <div class="toggle-switch" id="toggle-sem_tel_vazio"></div>
+            <span class="toggle-label">Apenas com telefone preenchido</span>
+          </div>
+          <div class="toggle-row" onclick="toggleOpt('apenas_ativas')">
+            <div class="toggle-switch" id="toggle-apenas_ativas" class="on"></div>
+            <span class="toggle-label">Apenas empresas ativas <span style="color:var(--accent3);font-size:11px;">✓ padrão</span></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Limite de registros -->
+      <div class="filter-group">
+        <label>Limite de registros</label>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <div class="toggle-row" onclick="toggleOpt('sem_limite')">
+            <div class="toggle-switch" id="toggle-sem_limite"></div>
+            <span class="toggle-label">Sem limite <span style="color:var(--warn);font-size:11px;">⚠ pode demorar</span></span>
+          </div>
+          <div id="limit-slider-wrap" class="limit-row">
+            <input type="range" id="f-limit" min="100" max="10000" step="100" value="500"
+              oninput="document.getElementById('limit-val').textContent = Number(this.value).toLocaleString('pt-BR')">
+            <span class="limit-val" id="limit-val">500</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="resetFilters()">↺ Resetar</button>
+      <button class="btn btn-primary" onclick="applyFilters()">▶ Aplicar e Buscar</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let lastColumns = [];
+let lastRows = [];
+let ltdaOn = false;
+let selectedTel = '';
+const toggleOpts = {
+  sem_cnpj_duplicado: false,
+  sem_tel_duplicado: false,
+  sem_tel_vazio: false,
+  apenas_ativas: true,   // ativo por padrão
+  sem_limite: false
+};
+
+const UF_LIST = [
+  'AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS',
+  'MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC',
+  'SP','SE','TO'
+];
+
+// ── Generic toggle ────────────────────────────────────────────────────────────
+function toggleOpt(key) {
+  toggleOpts[key] = !toggleOpts[key];
+  document.getElementById(`toggle-${key}`).classList.toggle('on', toggleOpts[key]);
+  // Show/hide limit slider when sem_limite is toggled
+  if (key === 'sem_limite') {
+    document.getElementById('limit-slider-wrap').style.opacity = toggleOpts[key] ? '0.3' : '1';
+    document.getElementById('limit-slider-wrap').style.pointerEvents = toggleOpts[key] ? 'none' : 'auto';
+  }
+}
+
+// ── UF grid init ──────────────────────────────────────────────────────────────
+function initUFGrid() {
+  const grid = document.getElementById('uf-grid');
+  UF_LIST.forEach(uf => {
+    const chip = document.createElement('div');
+    chip.className = 'uf-chip selected';
+    chip.textContent = uf;
+    chip.dataset.uf = uf;
+    chip.onclick = () => chip.classList.toggle('selected');
+    grid.appendChild(chip);
+  });
+  // Set apenas_ativas default visual
+  document.getElementById('toggle-apenas_ativas').classList.add('on');
+}
+function selectAllUF() {
+  document.querySelectorAll('.uf-chip').forEach(c => c.classList.add('selected'));
+}
+function clearUF() {
+  document.querySelectorAll('.uf-chip').forEach(c => c.classList.remove('selected'));
+}
+
+// ── LTDA toggle ───────────────────────────────────────────────────────────────
+function toggleLtda() {
+  ltdaOn = !ltdaOn;
+  document.getElementById('toggle-ltda').classList.toggle('on', ltdaOn);
+}
+
+// ── Tipo telefone ─────────────────────────────────────────────────────────────
+function selectTel(el) {
+  document.querySelectorAll('.tel-chip').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedTel = el.dataset.val;
+}
+
+// ── Modal open/close ──────────────────────────────────────────────────────────
+function openFilterModal() {
+  document.getElementById('filter-modal').classList.add('open');
+}
+function closeModal() {
+  document.getElementById('filter-modal').classList.remove('open');
+}
+document.getElementById('filter-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+
+// ── Reset filters ─────────────────────────────────────────────────────────────
+function resetFilters() {
+  selectAllUF();
+  document.getElementById('f-data-ini').value = '';
+  document.getElementById('f-data-fim').value = '';
+  ltdaOn = false;
+  document.getElementById('toggle-ltda').classList.remove('on');
+  selectedTel = '';
+  document.querySelectorAll('.tel-chip').forEach((c,i) => c.classList.toggle('selected', i===0));
+  // Reset all generic toggles
+  Object.keys(toggleOpts).forEach(k => {
+    toggleOpts[k] = k === 'apenas_ativas'; // apenas_ativas defaults to true
+    document.getElementById(`toggle-${k}`).classList.toggle('on', toggleOpts[k]);
+  });
+  document.getElementById('f-limit').value = 500;
+  document.getElementById('limit-val').textContent = '500';
+  document.getElementById('limit-slider-wrap').style.opacity = '1';
+  document.getElementById('limit-slider-wrap').style.pointerEvents = 'auto';
+}
+
+// ── Apply filters ─────────────────────────────────────────────────────────────
+async function applyFilters() {
+  closeModal();
+
+  const ufs = [...document.querySelectorAll('.uf-chip.selected')].map(c => c.dataset.uf);
+  const allUFs = ufs.length === UF_LIST.length;
+  const dataIni = document.getElementById('f-data-ini').value;
+  const dataFim = document.getElementById('f-data-fim').value;
+  const semLimite = toggleOpts.sem_limite;
+  const limit = semLimite ? 0 : parseInt(document.getElementById('f-limit').value);
+
+  // Build active filter tags
+  const tags = [];
+  if (!allUFs && ufs.length) tags.push(`UF: ${ufs.join(', ')}`);
+  if (dataIni) tags.push(`Abertura ≥ ${dataIni}`);
+  if (dataFim) tags.push(`Abertura ≤ ${dataFim}`);
+  if (ltdaOn)  tags.push('Apenas LTDA');
+  if (selectedTel) tags.push(`Tel: ${selectedTel}`);
+  if (toggleOpts.sem_cnpj_duplicado) tags.push('Sem CNPJ duplic.');
+  if (toggleOpts.sem_tel_duplicado)  tags.push('Sem Tel duplic.');
+  if (toggleOpts.sem_tel_vazio)      tags.push('Com telefone');
+  if (toggleOpts.apenas_ativas)      tags.push('Ativas');
+  tags.push(semLimite ? 'Sem limite' : `Limite: ${limit.toLocaleString('pt-BR')}`);
+
+  const bar = document.getElementById('active-filters-bar');
+  bar.innerHTML = tags.map(t => `<span class="filter-tag">${t}</span>`).join('');
+  bar.style.display = 'flex';
+
+  showLoading();
+
+  try {
+    const res = await fetch('/query/filtered', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        ufs: allUFs ? [] : ufs,
+        data_inicio: dataIni,
+        data_fim: dataFim,
+        apenas_ltda: ltdaOn,
+        tipo_telefone: selectedTel,
+        sem_cnpj_duplicado: toggleOpts.sem_cnpj_duplicado,
+        sem_tel_duplicado:  toggleOpts.sem_tel_duplicado,
+        sem_tel_vazio:      toggleOpts.sem_tel_vazio,
+        apenas_ativas:      toggleOpts.apenas_ativas,
+        sem_limite:         semLimite,
+        limit
+      })
+    });
+    const data = await res.json();
+    hideLoading();
+    if (!data.ok) { showError(data.detail || data.error); return; }
+    renderResults(data.columns, data.rows);
+    document.getElementById('result-count').textContent =
+      `${data.total.toLocaleString('pt-BR')} resultado(s) · Consulta Completa`;
+  } catch(e) {
+    hideLoading();
+    showError(e.message);
+  }
+}
+
+// ── Keyboard / editor ─────────────────────────────────────────────────────────
+function handleKeydown(e) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault();
+    runQuery();
+  }
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const el = e.target;
+    const s = el.selectionStart, en = el.selectionEnd;
+    el.value = el.value.substring(0,s) + '  ' + el.value.substring(en);
+    el.selectionStart = el.selectionEnd = s + 2;
+  }
+}
+
+async function loadSaved(key, el) {
+  // Consulta completa → abre modal de filtros
+  if (key === 'consulta_completa') {
+    document.querySelectorAll('.saved-item').forEach(i => i.classList.remove('active'));
+    el.classList.add('active');
+    openFilterModal();
+    return;
+  }
+
+  document.querySelectorAll('.saved-item').forEach(i => i.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('active-filters-bar').style.display = 'none';
+
+  showLoading();
+
+  const res = await fetch(`/query/saved/${key}`);
+  const data = await res.json();
+
+  hideLoading();
+
+  if (!data.ok) {
+    showError(data.error);
+    return;
+  }
+
+  renderResults(data.columns, data.rows);
+  document.getElementById('result-count').textContent =
+    `${data.total.toLocaleString('pt-BR')} resultado(s) · ${data.label}`;
+}
+
+async function runQuery() {
+  const sql = document.getElementById('sql-editor').value.trim();
+  if (!sql) return;
+
+  document.getElementById('active-filters-bar').style.display = 'none';
+  showLoading();
+  document.getElementById('run-btn').disabled = true;
+
+  try {
+    const res = await fetch('/query/run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ sql })
+    });
+    const data = await res.json();
+    hideLoading();
+    document.getElementById('run-btn').disabled = false;
+
+    if (!data.ok) { showError(data.error); return; }
+    renderResults(data.columns, data.rows);
+    document.getElementById('result-count').textContent =
+      `${data.total.toLocaleString('pt-BR')} resultado(s)`;
+  } catch(e) {
+    hideLoading();
+    document.getElementById('run-btn').disabled = false;
+    showError(e.message);
+  }
+}
+
+function showLoading() {
+  document.getElementById('results-section').style.display = 'block';
+  document.getElementById('results-table-wrap').innerHTML = '';
+  document.getElementById('loading').style.display = 'flex';
+  document.getElementById('error-box').style.display = 'none';
+  document.getElementById('result-count').textContent = '';
+}
+function hideLoading() {
+  document.getElementById('loading').style.display = 'none';
+}
+
+function renderResults(columns, rows) {
+  lastColumns = columns;
+  lastRows = rows;
+
+  if (!rows.length) {
+    document.getElementById('results-table-wrap').innerHTML =
+      '<div style="padding:24px; text-align:center; color:var(--muted); font-family:var(--mono); font-size:13px;">Nenhum resultado encontrado.</div>';
+    return;
+  }
+
+  let html = '<table><thead><tr>';
+  columns.forEach(c => { html += `<th>${c}</th>`; });
+  html += '</tr></thead><tbody>';
+
+  rows.forEach(row => {
+    html += '<tr>';
+    columns.forEach(c => {
+      const val = row[c];
+      const display = val === null ? '<span style="color:var(--muted)">NULL</span>' : val;
+      html += `<td>${display}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('results-table-wrap').innerHTML = html;
+}
+
+function showError(msg) {
+  const box = document.getElementById('error-box');
+  box.textContent = '❌ ' + msg;
+  box.style.display = 'block';
+}
+
+function clearEditor() {
+  document.getElementById('sql-editor').value = '';
+  document.getElementById('results-section').style.display = 'none';
+  document.getElementById('error-box').style.display = 'none';
+  document.getElementById('active-filters-bar').style.display = 'none';
+  document.querySelectorAll('.saved-item').forEach(i => i.classList.remove('active'));
+}
+
+function exportCSV() {
+  if (!lastColumns.length) return;
+  const lines = [lastColumns.join(';')];
+  lastRows.forEach(row => {
+    lines.push(lastColumns.map(c => {
+      const v = row[c] ?? '';
+      return `"${String(v).replace(/"/g, '""')}"`;
+    }).join(';'));
+  });
+  const blob = new Blob(['\uFEFF' + lines.join('\n')], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `cnpj_query_${Date.now()}.csv`;
+  a.click();
+}
+
+function exportXLSX() {
+  if (!lastColumns.length) return;
+
+  // Build array-of-arrays: header + rows
+  const aoа = [lastColumns];
+  lastRows.forEach(row => {
+    aoа.push(lastColumns.map(c => {
+      const v = row[c];
+      return v === null || v === undefined ? '' : v;
+    }));
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(aoа);
+
+  // Auto column widths
+  const colWidths = lastColumns.map((col, i) => {
+    const maxLen = Math.max(
+      col.length,
+      ...lastRows.map(r => String(r[col] ?? '').length)
+    );
+    return { wch: Math.min(maxLen + 2, 50) };
+  });
+  ws['!cols'] = colWidths;
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Dados CNPJ');
+  XLSX.writeFile(wb, `cnpj_${Date.now()}.xlsx`);
+}
+
+// Init
+window.addEventListener('DOMContentLoaded', () => {
+  initUFGrid();
+  const params = new URLSearchParams(window.location.search);
+  const q = params.get('q');
+  if (q) {
+    const el = document.querySelector(`[data-key="${q}"]`);
+    if (el) loadSaved(q, el);
+  }
+});
+</script>
+{% endblock %}
