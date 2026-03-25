@@ -8,7 +8,10 @@ def get_connection():
 def execute_query(sql, params=None, fetchall=True):
     conn = get_connection()
     cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cursor.execute(sql, params or ())
+    if params:
+        cursor.execute(sql, params)
+    else:
+        cursor.execute(sql)
     result = cursor.fetchall() if fetchall else cursor.fetchone()
     result = [dict(r) for r in result] if fetchall else (dict(result) if result else None)
     cursor.close()

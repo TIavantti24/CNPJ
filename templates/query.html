@@ -3,6 +3,7 @@
 {% block page_name %}Consultas SQL{% endblock %}
 
 {% block extra_head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 .query-layout {
   display: grid;
@@ -81,12 +82,32 @@
 
 #results-table-wrap {
   overflow-x: auto;
+  overflow-y: auto;
   border-radius: 8px;
   border: 1px solid var(--border);
-  max-height: 500px;
-  overflow-y: auto;
+  max-height: calc(100vh - 380px);
+  min-height: 120px;
+  width: 100%;
+  position: relative;
 }
-#results-table-wrap table { min-width: 100%; }
+#results-table-wrap table {
+  min-width: 100%;
+  width: max-content;
+  border-collapse: collapse;
+}
+#results-table-wrap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
+  white-space: nowrap;
+}
+#results-table-wrap tbody td {
+  white-space: nowrap;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* Loading overlay */
 .loading-overlay {
@@ -103,6 +124,282 @@
 .export-btn {
   margin-left: auto;
 }
+
+/* ── Result meta bar ─────────────────────────────────── */
+.result-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.result-meta .export-group {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.result-meta .card-title {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.result-meta .result-count {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* ── Filter Modal ───────────────────────────────────── */
+.modal-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.7);
+  backdrop-filter: blur(4px);
+  z-index: 200;
+  align-items: center;
+  justify-content: center;
+}
+.modal-backdrop.open { display: flex; }
+
+.modal-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 680px;
+  max-width: 95vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 24px 64px rgba(0,0,0,.6);
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-head h3 {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -.02em;
+}
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: color .15s;
+}
+.modal-close:hover { color: var(--text); }
+
+.modal-body { padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+
+.filter-group label {
+  display: block;
+  font-size: 11px;
+  font-family: var(--mono);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.uf-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.uf-chip {
+  padding: 4px 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 12px;
+  font-family: var(--mono);
+  cursor: pointer;
+  user-select: none;
+  transition: all .12s;
+  color: var(--muted);
+}
+.uf-chip:hover { border-color: var(--accent); color: var(--accent); }
+.uf-chip.selected {
+  background: rgba(0,229,255,.12);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.date-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.filter-input {
+  width: 100%;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 8px 12px;
+  outline: none;
+  transition: border-color .15s;
+}
+.filter-input:focus { border-color: var(--accent); }
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+.toggle-switch {
+  width: 40px; height: 22px;
+  background: var(--border);
+  border-radius: 11px;
+  position: relative;
+  transition: background .2s;
+  flex-shrink: 0;
+}
+.toggle-switch.on { background: var(--accent); }
+.toggle-switch::after {
+  content: '';
+  position: absolute;
+  width: 16px; height: 16px;
+  background: white;
+  border-radius: 50%;
+  top: 3px; left: 3px;
+  transition: left .2s;
+}
+.toggle-switch.on::after { left: 21px; }
+.toggle-label { font-size: 13px; }
+
+.tel-chips { display: flex; gap: 8px; }
+.tel-chip {
+  padding: 6px 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: var(--mono);
+  cursor: pointer;
+  transition: all .12s;
+  color: var(--muted);
+}
+.tel-chip:hover { border-color: var(--accent); color: var(--accent); }
+.tel-chip.selected {
+  background: rgba(0,229,255,.12);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.limit-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.limit-row input[type=range] {
+  flex: 1;
+  accent-color: var(--accent);
+}
+.limit-val {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--accent);
+  min-width: 50px;
+  text-align: right;
+}
+
+.modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+}
+
+.active-filters-bar {
+  display: none;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.filter-tag {
+  padding: 3px 10px;
+  background: rgba(0,229,255,.08);
+  border: 1px solid rgba(0,229,255,.25);
+  border-radius: 20px;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--accent);
+}
+
+/* CNAE search */
+.cnae-search-wrap { position: relative; }
+.cnae-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0; right: 0;
+  background: var(--card);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  z-index: 300;
+  box-shadow: 0 8px 24px rgba(0,0,0,.5);
+  display: none;
+}
+.cnae-dropdown.open { display: block; }
+.cnae-option {
+  padding: 9px 14px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.4;
+  border-bottom: 1px solid var(--border);
+  transition: background .1s;
+}
+.cnae-option:last-child { border-bottom: none; }
+.cnae-option:hover { background: rgba(0,229,255,.08); }
+.cnae-option .cnae-code { font-family: var(--mono); color: var(--accent); font-size: 11px; margin-right: 8px; }
+.cnae-option .cnae-desc { color: var(--text); }
+.cnae-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.cnae-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(124,58,237,.15);
+  border: 1px solid rgba(124,58,237,.35);
+  border-radius: 20px;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: #a78bfa;
+}
+.cnae-tag button {
+  background: none;
+  border: none;
+  color: #a78bfa;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+  line-height: 1;
+}
+.cnae-tag button:hover { color: var(--danger); }
 </style>
 {% endblock %}
 
@@ -161,12 +458,14 @@
 
     <!-- Results -->
     <div class="results-section" id="results-section" style="display:none;">
+      <div class="active-filters-bar" id="active-filters-bar"></div>
       <div class="result-meta">
+        <div class="export-group">
+          <button class="btn btn-ghost btn-sm" onclick="exportCSV()">↓ CSV</button>
+          <button class="btn btn-primary btn-sm" onclick="exportXLSX()">↓ XLSX</button>
+        </div>
         <span class="card-title">📊 Resultados</span>
         <span class="result-count" id="result-count"></span>
-        <button class="btn btn-ghost btn-sm export-btn" onclick="exportCSV()">
-          ↓ Exportar CSV
-        </button>
       </div>
 
       <div class="loading-overlay" id="loading">
@@ -183,20 +482,353 @@
   </div>
 
 </div>
+
+<!-- ── Modal de Filtros (Consulta Completa) ──────────────────────────────── -->
+<div class="modal-backdrop" id="filter-modal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>🔍 Filtros — Consulta Completa</h3>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- UF -->
+      <div class="filter-group">
+        <label>Estado (UF)</label>
+        <div style="display:flex; gap:8px; margin-bottom:8px;">
+          <button class="btn btn-ghost btn-sm" onclick="selectAllUF()">Todos</button>
+          <button class="btn btn-ghost btn-sm" onclick="clearUF()">Limpar</button>
+        </div>
+        <div class="uf-grid" id="uf-grid"></div>
+      </div>
+
+      <!-- Período de abertura -->
+      <div class="filter-group">
+        <label>Período de Abertura</label>
+        <div class="date-row">
+          <div>
+            <div style="font-size:11px; color:var(--muted); font-family:var(--mono); margin-bottom:4px;">De</div>
+            <input type="date" class="filter-input" id="f-data-ini">
+          </div>
+          <div>
+            <div style="font-size:11px; color:var(--muted); font-family:var(--mono); margin-bottom:4px;">Até</div>
+            <input type="date" class="filter-input" id="f-data-fim">
+          </div>
+        </div>
+      </div>
+
+      <!-- LTDA toggle -->
+      <div class="filter-group">
+        <label>Tipo de Empresa</label>
+        <div class="toggle-row" onclick="toggleLtda()">
+          <div class="toggle-switch" id="toggle-ltda"></div>
+          <span class="toggle-label">Apenas <strong>LTDA</strong> (filtra pela razão social)</span>
+        </div>
+      </div>
+
+      <!-- CNAE filter -->
+      <div class="filter-group">
+        <label>Segmento / CNAE</label>
+        <div class="cnae-search-wrap">
+          <input type="text" class="filter-input" id="cnae-input"
+            placeholder="Digite o segmento ou código CNAE..."
+            autocomplete="off"
+            oninput="searchCnae(this.value)"
+            onfocus="if(this.value.length>=2) document.getElementById('cnae-dropdown').classList.add('open')"
+          >
+          <div class="cnae-dropdown" id="cnae-dropdown"></div>
+        </div>
+        <div class="cnae-tags" id="cnae-tags"></div>
+      </div>
+
+      <!-- Tipo de telefone -->
+      <div class="filter-group">
+        <label>Tipo de Telefone 1</label>
+        <div class="tel-chips">
+          <div class="tel-chip selected" data-val="" onclick="selectTel(this)">Todos</div>
+          <div class="tel-chip" data-val="Fixo" onclick="selectTel(this)">📞 Fixo</div>
+          <div class="tel-chip" data-val="Celular" onclick="selectTel(this)">📱 Celular</div>
+        </div>
+      </div>
+
+      <!-- Opções de deduplicação e qualidade -->
+      <div class="filter-group">
+        <label>Qualidade dos dados</label>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <div class="toggle-row" onclick="toggleOpt('sem_cnpj_duplicado')">
+            <div class="toggle-switch" id="toggle-sem_cnpj_duplicado"></div>
+            <span class="toggle-label">Sem CNPJ duplicado <span style="color:var(--muted);font-size:11px;">(1 linha por empresa)</span></span>
+          </div>
+          <div class="toggle-row" onclick="toggleOpt('sem_tel_duplicado')">
+            <div class="toggle-switch" id="toggle-sem_tel_duplicado"></div>
+            <span class="toggle-label">Sem telefone duplicado <span style="color:var(--muted);font-size:11px;">(1 linha por número)</span></span>
+          </div>
+          <div class="toggle-row" onclick="toggleOpt('sem_tel_vazio')">
+            <div class="toggle-switch" id="toggle-sem_tel_vazio"></div>
+            <span class="toggle-label">Apenas com telefone preenchido</span>
+          </div>
+          <div class="toggle-row" onclick="toggleOpt('apenas_ativas')">
+            <div class="toggle-switch" id="toggle-apenas_ativas" class="on"></div>
+            <span class="toggle-label">Apenas empresas ativas <span style="color:var(--accent3);font-size:11px;">✓ padrão</span></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Limite de registros -->
+      <div class="filter-group">
+        <label>Limite de registros</label>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <div class="toggle-row" onclick="toggleOpt('sem_limite')">
+            <div class="toggle-switch" id="toggle-sem_limite"></div>
+            <span class="toggle-label">Sem limite <span style="color:var(--warn);font-size:11px;">⚠ pode demorar</span></span>
+          </div>
+          <div id="limit-slider-wrap" class="limit-row">
+            <input type="range" id="f-limit" min="100" max="10000" step="100" value="500"
+              oninput="document.getElementById('limit-val').textContent = Number(this.value).toLocaleString('pt-BR')">
+            <span class="limit-val" id="limit-val">500</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="resetFilters()">↺ Resetar</button>
+      <button class="btn btn-primary" onclick="applyFilters()">▶ Aplicar e Buscar</button>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
 let lastColumns = [];
 let lastRows = [];
+let ltdaOn = false;
+let selectedTel = '';
+let selectedCnaes = []; // [{code, desc}]
+const toggleOpts = {
+  sem_cnpj_duplicado: false,
+  sem_tel_duplicado: false,
+  sem_tel_vazio: false,
+  apenas_ativas: true,
+  sem_limite: false
+};
 
+const UF_LIST = [
+  'AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS',
+  'MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC',
+  'SP','SE','TO'
+];
+
+// ── Generic toggle ────────────────────────────────────────────────────────────
+function toggleOpt(key) {
+  toggleOpts[key] = !toggleOpts[key];
+  document.getElementById(`toggle-${key}`).classList.toggle('on', toggleOpts[key]);
+  // Show/hide limit slider when sem_limite is toggled
+  if (key === 'sem_limite') {
+    document.getElementById('limit-slider-wrap').style.opacity = toggleOpts[key] ? '0.3' : '1';
+    document.getElementById('limit-slider-wrap').style.pointerEvents = toggleOpts[key] ? 'none' : 'auto';
+  }
+}
+
+// ── CNAE search ───────────────────────────────────────────────────────────────
+let cnaeTimer = null;
+async function searchCnae(val) {
+  const dd = document.getElementById('cnae-dropdown');
+  if (val.length < 2) { dd.classList.remove('open'); return; }
+  clearTimeout(cnaeTimer);
+  cnaeTimer = setTimeout(async () => {
+    try {
+      const res = await fetch(`/query/cnae_search?q=${encodeURIComponent(val)}`);
+      const data = await res.json();
+      dd.innerHTML = '';
+      if (!data.results || !data.results.length) {
+        dd.innerHTML = '<div class="cnae-option" style="color:var(--muted)">Nenhum resultado</div>';
+      } else {
+        data.results.forEach(r => {
+          const opt = document.createElement('div');
+          opt.className = 'cnae-option';
+          opt.innerHTML = `<span class="cnae-code">${r.codigo_cnae}</span><span class="cnae-desc">${r.descricao_cnae}</span>`;
+          opt.onclick = () => addCnae(r.codigo_cnae, r.descricao_cnae);
+          dd.appendChild(opt);
+        });
+      }
+      dd.classList.add('open');
+    } catch(e) { dd.classList.remove('open'); }
+  }, 250);
+}
+
+function addCnae(code, desc) {
+  if (selectedCnaes.find(c => c.code === code)) {
+    document.getElementById('cnae-dropdown').classList.remove('open');
+    document.getElementById('cnae-input').value = '';
+    return;
+  }
+  selectedCnaes.push({code, desc});
+  renderCnaeTags();
+  document.getElementById('cnae-dropdown').classList.remove('open');
+  document.getElementById('cnae-input').value = '';
+}
+
+function removeCnae(code) {
+  selectedCnaes = selectedCnaes.filter(c => c.code !== code);
+  renderCnaeTags();
+}
+
+function renderCnaeTags() {
+  const container = document.getElementById('cnae-tags');
+  container.innerHTML = selectedCnaes.map(c => `
+    <div class="cnae-tag">
+      <span>${c.code} · ${c.desc.length > 35 ? c.desc.slice(0,35)+'…' : c.desc}</span>
+      <button onclick="removeCnae('${c.code}')" title="Remover">×</button>
+    </div>
+  `).join('');
+}
+
+// Close CNAE dropdown on outside click
+document.addEventListener('click', e => {
+  if (!e.target.closest('.cnae-search-wrap')) {
+    document.getElementById('cnae-dropdown').classList.remove('open');
+  }
+});
+
+// ── UF grid init ──────────────────────────────────────────────────────────────
+function initUFGrid() {
+  const grid = document.getElementById('uf-grid');
+  UF_LIST.forEach(uf => {
+    const chip = document.createElement('div');
+    chip.className = 'uf-chip selected';
+    chip.textContent = uf;
+    chip.dataset.uf = uf;
+    chip.onclick = () => chip.classList.toggle('selected');
+    grid.appendChild(chip);
+  });
+  // Set apenas_ativas default visual
+  document.getElementById('toggle-apenas_ativas').classList.add('on');
+}
+function selectAllUF() {
+  document.querySelectorAll('.uf-chip').forEach(c => c.classList.add('selected'));
+}
+function clearUF() {
+  document.querySelectorAll('.uf-chip').forEach(c => c.classList.remove('selected'));
+}
+
+// ── LTDA toggle ───────────────────────────────────────────────────────────────
+function toggleLtda() {
+  ltdaOn = !ltdaOn;
+  document.getElementById('toggle-ltda').classList.toggle('on', ltdaOn);
+}
+
+// ── Tipo telefone ─────────────────────────────────────────────────────────────
+function selectTel(el) {
+  document.querySelectorAll('.tel-chip').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedTel = el.dataset.val;
+}
+
+// ── Modal open/close ──────────────────────────────────────────────────────────
+function openFilterModal() {
+  document.getElementById('filter-modal').classList.add('open');
+}
+function closeModal() {
+  document.getElementById('filter-modal').classList.remove('open');
+}
+document.getElementById('filter-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+
+// ── Reset filters ─────────────────────────────────────────────────────────────
+function resetFilters() {
+  selectAllUF();
+  document.getElementById('f-data-ini').value = '';
+  document.getElementById('f-data-fim').value = '';
+  ltdaOn = false;
+  document.getElementById('toggle-ltda').classList.remove('on');
+  selectedTel = '';
+  document.querySelectorAll('.tel-chip').forEach((c,i) => c.classList.toggle('selected', i===0));
+  // Reset all generic toggles
+  Object.keys(toggleOpts).forEach(k => {
+    toggleOpts[k] = k === 'apenas_ativas'; // apenas_ativas defaults to true
+    document.getElementById(`toggle-${k}`).classList.toggle('on', toggleOpts[k]);
+  });
+  selectedCnaes = [];
+  renderCnaeTags();
+  document.getElementById('cnae-input').value = '';
+  document.getElementById('f-limit').value = 500;
+  document.getElementById('limit-val').textContent = '500';
+  document.getElementById('limit-slider-wrap').style.opacity = '1';
+  document.getElementById('limit-slider-wrap').style.pointerEvents = 'auto';
+}
+
+// ── Apply filters ─────────────────────────────────────────────────────────────
+async function applyFilters() {
+  closeModal();
+
+  const ufs = [...document.querySelectorAll('.uf-chip.selected')].map(c => c.dataset.uf);
+  const allUFs = ufs.length === UF_LIST.length;
+  const dataIni = document.getElementById('f-data-ini').value;
+  const dataFim = document.getElementById('f-data-fim').value;
+  const semLimite = toggleOpts.sem_limite;
+  const limit = semLimite ? 0 : parseInt(document.getElementById('f-limit').value);
+
+  // Build active filter tags
+  const tags = [];
+  if (!allUFs && ufs.length) tags.push(`UF: ${ufs.join(', ')}`);
+  if (dataIni) tags.push(`Abertura ≥ ${dataIni}`);
+  if (dataFim) tags.push(`Abertura ≤ ${dataFim}`);
+  if (ltdaOn)  tags.push('Apenas LTDA');
+  if (selectedTel) tags.push(`Tel: ${selectedTel}`);
+  if (selectedCnaes.length) tags.push(`CNAEs: ${selectedCnaes.map(c=>c.code).join(', ')}`);
+  if (toggleOpts.sem_cnpj_duplicado) tags.push('Sem CNPJ duplic.');
+  if (toggleOpts.sem_tel_duplicado)  tags.push('Sem Tel duplic.');
+  if (toggleOpts.sem_tel_vazio)      tags.push('Com telefone');
+  if (toggleOpts.apenas_ativas)      tags.push('Ativas');
+  tags.push(semLimite ? 'Sem limite' : `Limite: ${limit.toLocaleString('pt-BR')}`);
+
+  const bar = document.getElementById('active-filters-bar');
+  bar.innerHTML = tags.map(t => `<span class="filter-tag">${t}</span>`).join('');
+  bar.style.display = 'flex';
+
+  showLoading();
+
+  try {
+    const res = await fetch('/query/filtered', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        ufs: allUFs ? [] : ufs,
+        data_inicio: dataIni,
+        data_fim: dataFim,
+        apenas_ltda: ltdaOn,
+        tipo_telefone: selectedTel,
+        sem_cnpj_duplicado: toggleOpts.sem_cnpj_duplicado,
+        sem_tel_duplicado:  toggleOpts.sem_tel_duplicado,
+        sem_tel_vazio:      toggleOpts.sem_tel_vazio,
+        apenas_ativas:      toggleOpts.apenas_ativas,
+        sem_limite:         semLimite,
+        limit,
+        cnaes: selectedCnaes.map(c => c.code)
+      })
+    });
+    const data = await res.json();
+    hideLoading();
+    if (!data.ok) { showError(data.detail || data.error); return; }
+    renderResults(data.columns, data.rows);
+    document.getElementById('result-count').textContent =
+      `${data.total.toLocaleString('pt-BR')} resultado(s) · Consulta Completa`;
+  } catch(e) {
+    hideLoading();
+    showError(e.message);
+  }
+}
+
+// ── Keyboard / editor ─────────────────────────────────────────────────────────
 function handleKeydown(e) {
-  // Ctrl+Enter or Cmd+Enter to run
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
     e.preventDefault();
     runQuery();
   }
-  // Tab indent
   if (e.key === 'Tab') {
     e.preventDefault();
     const el = e.target;
@@ -207,28 +839,30 @@ function handleKeydown(e) {
 }
 
 async function loadSaved(key, el) {
+  // Consulta completa → abre modal de filtros
+  if (key === 'consulta_completa') {
+    document.querySelectorAll('.saved-item').forEach(i => i.classList.remove('active'));
+    el.classList.add('active');
+    openFilterModal();
+    return;
+  }
+
   document.querySelectorAll('.saved-item').forEach(i => i.classList.remove('active'));
   el.classList.add('active');
+  document.getElementById('active-filters-bar').style.display = 'none';
 
-  // Show loading
-  document.getElementById('results-section').style.display = 'block';
-  document.getElementById('results-table-wrap').innerHTML = '';
-  document.getElementById('loading').style.display = 'flex';
-  document.getElementById('error-box').style.display = 'none';
-  document.getElementById('result-count').textContent = '';
+  showLoading();
 
   const res = await fetch(`/query/saved/${key}`);
   const data = await res.json();
 
-  document.getElementById('loading').style.display = 'none';
+  hideLoading();
 
   if (!data.ok) {
     showError(data.error);
     return;
   }
 
-  // Populate editor with SQL (fetch from page)
-  const sqlRes = await fetch(`/query/saved/${key}`);
   renderResults(data.columns, data.rows);
   document.getElementById('result-count').textContent =
     `${data.total.toLocaleString('pt-BR')} resultado(s) · ${data.label}`;
@@ -238,11 +872,8 @@ async function runQuery() {
   const sql = document.getElementById('sql-editor').value.trim();
   if (!sql) return;
 
-  document.getElementById('results-section').style.display = 'block';
-  document.getElementById('results-table-wrap').innerHTML = '';
-  document.getElementById('loading').style.display = 'flex';
-  document.getElementById('error-box').style.display = 'none';
-  document.getElementById('result-count').textContent = '';
+  document.getElementById('active-filters-bar').style.display = 'none';
+  showLoading();
   document.getElementById('run-btn').disabled = true;
 
   try {
@@ -252,7 +883,7 @@ async function runQuery() {
       body: JSON.stringify({ sql })
     });
     const data = await res.json();
-    document.getElementById('loading').style.display = 'none';
+    hideLoading();
     document.getElementById('run-btn').disabled = false;
 
     if (!data.ok) { showError(data.error); return; }
@@ -260,10 +891,21 @@ async function runQuery() {
     document.getElementById('result-count').textContent =
       `${data.total.toLocaleString('pt-BR')} resultado(s)`;
   } catch(e) {
-    document.getElementById('loading').style.display = 'none';
+    hideLoading();
     document.getElementById('run-btn').disabled = false;
     showError(e.message);
   }
+}
+
+function showLoading() {
+  document.getElementById('results-section').style.display = 'block';
+  document.getElementById('results-table-wrap').innerHTML = '';
+  document.getElementById('loading').style.display = 'flex';
+  document.getElementById('error-box').style.display = 'none';
+  document.getElementById('result-count').textContent = '';
+}
+function hideLoading() {
+  document.getElementById('loading').style.display = 'none';
 }
 
 function renderResults(columns, rows) {
@@ -303,6 +945,7 @@ function clearEditor() {
   document.getElementById('sql-editor').value = '';
   document.getElementById('results-section').style.display = 'none';
   document.getElementById('error-box').style.display = 'none';
+  document.getElementById('active-filters-bar').style.display = 'none';
   document.querySelectorAll('.saved-item').forEach(i => i.classList.remove('active'));
 }
 
@@ -322,8 +965,38 @@ function exportCSV() {
   a.click();
 }
 
-// Load from URL param
+function exportXLSX() {
+  if (!lastColumns.length) return;
+
+  // Build array-of-arrays: header + rows
+  const aoа = [lastColumns];
+  lastRows.forEach(row => {
+    aoа.push(lastColumns.map(c => {
+      const v = row[c];
+      return v === null || v === undefined ? '' : v;
+    }));
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(aoа);
+
+  // Auto column widths
+  const colWidths = lastColumns.map((col, i) => {
+    const maxLen = Math.max(
+      col.length,
+      ...lastRows.map(r => String(r[col] ?? '').length)
+    );
+    return { wch: Math.min(maxLen + 2, 50) };
+  });
+  ws['!cols'] = colWidths;
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Dados CNPJ');
+  XLSX.writeFile(wb, `cnpj_${Date.now()}.xlsx`);
+}
+
+// Init
 window.addEventListener('DOMContentLoaded', () => {
+  initUFGrid();
   const params = new URLSearchParams(window.location.search);
   const q = params.get('q');
   if (q) {

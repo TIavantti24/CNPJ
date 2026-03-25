@@ -175,6 +175,100 @@ SAVED_QUERIES = {
             ORDER BY ano DESC
             LIMIT 50
         """
+    },
+    'consulta_completa': {
+        'label': '🔍 Consulta Completa com Filtros',
+        'description': 'Dados completos de empresas, estabelecimentos e sócios com filtros avançados.',
+        'modal_filters': True,
+        'sql': """
+            SELECT {DISTINCT_CNPJ}
+                CONCAT(e.cnpj_basico, est.cnpj_ordem, est.cnpj_dv) AS cnpj_completo,
+                e.cnpj_basico,
+                est.cnpj_ordem,
+                est.cnpj_dv,
+                e.razao_social,
+                n.descricao_natureza_juridica,
+                q_resp.descricao_qualificacao AS qualificacao_do_responsavel,
+                e.capital_social,
+                CASE e.porte_da_empresa
+                    WHEN '01' THEN 'Micro Empresa'
+                    WHEN '03' THEN 'Pequeno Porte'
+                    WHEN '05' THEN 'Demais'
+                    ELSE e.porte_da_empresa
+                END AS porte_da_empresa,
+                CASE e.porte_da_empresa
+                    WHEN '01' THEN 'ME'
+                    WHEN '03' THEN 'EPP'
+                    WHEN '05' THEN 'Demais'
+                    ELSE 'Não Informado'
+                END AS tipo_empresa,
+                e.ente_federativo_resposavel,
+                est.identificador_matriz_filial,
+                COALESCE(est.nome_fantasia, '') AS nome_fantasia,
+                est.situacao_cadastral,
+                est.data_situacao_cadastral,
+                mot.descricao_motivo,
+                est.nome_da_cidade_no_exterior,
+                p_est.nome_pais AS pais_est,
+                est.data_de_inicio_da_atividade,
+                est.cnae_fiscal_principal AS codigo_cnae_principal,
+                cp.descricao_cnae AS cnae_principal,
+                est.cnae_fiscal_secundaria AS codigo_cnae_secundario,
+                cs.descricao_cnae AS cnae_secundario,
+                est.tipo_de_logradouro,
+                est.logradouro,
+                est.numero,
+                est.complemento,
+                est.bairro,
+                est.cep,
+                est.uf,
+                m.nome_municipio,
+                CASE
+                    WHEN est.ddd1 IS NOT NULL AND est.ddd1 != '' AND est.telefone1 IS NOT NULL AND est.telefone1 != ''
+                    THEN CONCAT('(', est.ddd1, ') ', est.telefone1)
+                    ELSE ''
+                END AS telefone1_completo,
+                CASE
+                    WHEN est.telefone1 LIKE '9%%' AND LENGTH(est.telefone1) = 9 THEN 'Celular'
+                    WHEN LENGTH(est.telefone1) = 8 THEN 'Fixo'
+                    ELSE 'Outro'
+                END AS tipo_telefone1,
+                CASE
+                    WHEN est.ddd2 IS NOT NULL AND est.ddd2 != '' AND est.telefone2 IS NOT NULL AND est.telefone2 != ''
+                    THEN CONCAT('(', est.ddd2, ') ', est.telefone2)
+                    ELSE ''
+                END AS telefone2_completo,
+                est.correio_eletronico,
+                est.situacao_especial,
+                est.data_da_situacao_especial,
+                s.identificador_de_socio,
+                s.nome_do_socio,
+                s.cnpj_ou_cpf_do_socio,
+                q_soc.descricao_qualificacao AS qualificacao_do_socio,
+                s.data_de_entrada_sociedade,
+                p_soc.nome_pais AS pais_socio,
+                s.representante_legal,
+                s.nome_do_representante,
+                q_rep.descricao_qualificacao AS qualificacao_do_representante_legal,
+                s.faixa_etaria
+            FROM empresas e
+            JOIN estabelecimentos est ON e.cnpj_basico = est.cnpj_basico
+            LEFT JOIN municipios m ON est.municipio = m.codigo_municipio
+            LEFT JOIN natureza n ON e.natureza_juridica = n.codigo_natureza_juridica
+            LEFT JOIN qualificacoes q_resp ON e.qualificacao_do_responsavel = q_resp.codigo_qualificacao
+            LEFT JOIN socios s ON e.cnpj_basico = s.cnpj_basico
+            LEFT JOIN qualificacoes q_soc ON s.qualificacao_do_socio = q_soc.codigo_qualificacao
+            LEFT JOIN qualificacoes q_rep ON s.qualificacao_do_representante_legal = q_rep.codigo_qualificacao
+            LEFT JOIN paises p_est ON est.pais = p_est.codigo_pais
+            LEFT JOIN paises p_soc ON s.pais = p_soc.codigo_pais
+            LEFT JOIN motivos mot ON est.motivo_situacao_cadastral = mot.codigo_motivo
+            LEFT JOIN cnaes cp ON est.cnae_fiscal_principal = cp.codigo_cnae
+            LEFT JOIN cnaes cs ON est.cnae_fiscal_secundaria = cs.codigo_cnae
+            WHERE est.situacao_cadastral = '02'
+            {WHERE_EXTRA}
+            {ORDER_CLAUSE}
+            {LIMIT_CLAUSE}
+        """
     }
 }
 
@@ -215,3 +309,128 @@ def run_saved(key):
                         'total': len(rows), 'label': q['label']})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
+
+
+@query_bp.route('/filtered', methods=['POST'])
+def run_filtered():
+    """Executa a consulta completa com filtros dinâmicos do modal."""
+    data = request.json or {}
+    q = SAVED_QUERIES.get('consulta_completa')
+    if not q:
+        return jsonify({'ok': False, 'error': 'Query não encontrada'})
+
+    filters = []
+    params  = []
+
+    # Filtro: UF (estado)
+    ufs = [u.strip().upper() for u in data.get('ufs', []) if u.strip()]
+    if ufs:
+        placeholders = ', '.join(['%s'] * len(ufs))
+        filters.append(f"est.uf IN ({placeholders})")
+        params.extend(ufs)
+
+    # Filtro: período de abertura
+    data_ini = data.get('data_inicio', '').strip()
+    data_fim = data.get('data_fim', '').strip()
+    if data_ini:
+        filters.append("est.data_de_inicio_da_atividade >= %s")
+        params.append(data_ini.replace('-', ''))
+    if data_fim:
+        filters.append("est.data_de_inicio_da_atividade <= %s")
+        params.append(data_fim.replace('-', ''))
+
+    # Filtro: apenas LTDA
+    if data.get('apenas_ltda'):
+        filters.append("UPPER(e.razao_social) LIKE %s")
+        params.append('%LTDA%')
+
+    # Filtro: tipo de telefone
+    tipo_tel = data.get('tipo_telefone', '').strip()
+    if tipo_tel == 'Celular':
+        # Celular: começa com 9 (RF armazena sem o nono dígito, então 8 chars começando com 9 = celular)
+        filters.append("est.telefone1 LIKE '9%%'")
+    elif tipo_tel == 'Fixo':
+        # Fixo: NÃO começa com 9
+        filters.append("est.telefone1 NOT LIKE '9%%' AND est.telefone1 IS NOT NULL AND est.telefone1 != ''")
+
+    # Filtro: apenas ativas (situacao_cadastral = '02' já está no WHERE base,
+    # mas aqui garantimos também que telefone e cnpj não sejam nulos)
+    if data.get('apenas_ativas'):
+        filters.append("est.situacao_cadastral = '02'")
+
+    # Filtro: sem telefone vazio/nulo
+    if data.get('sem_tel_vazio') or data.get('sem_tel_duplicado'):
+        filters.append("est.telefone1 IS NOT NULL AND est.telefone1 != ''")
+        filters.append("est.ddd1 IS NOT NULL AND est.ddd1 != ''")
+
+    # Filtro: CNAEs selecionados
+    cnaes = data.get('cnaes', [])
+    if cnaes:
+        placeholders = ', '.join(['%s'] * len(cnaes))
+        filters.append(f"est.cnae_fiscal_principal IN ({placeholders})")
+        params.extend(cnaes)
+
+    where_extra = ''
+    if filters:
+        where_extra = 'AND ' + ' AND '.join(filters)
+
+    # DISTINCT por CNPJ
+    sem_cnpj_dup = data.get('sem_cnpj_duplicado', False)
+    sem_tel_dup = data.get('sem_tel_duplicado', False)
+
+    if sem_tel_dup:
+        # DISTINCT ON telefone: cada número aparece só uma vez
+        distinct_clause = 'DISTINCT ON (est.ddd1, est.telefone1)'
+        order_clause = 'ORDER BY est.ddd1, est.telefone1, e.razao_social'
+    elif sem_cnpj_dup:
+        # DISTINCT ON CNPJ: cada empresa aparece só uma vez
+        distinct_clause = 'DISTINCT ON (e.cnpj_basico, est.cnpj_ordem, est.cnpj_dv)'
+        order_clause = 'ORDER BY e.cnpj_basico, est.cnpj_ordem, est.cnpj_dv, e.razao_social'
+    else:
+        distinct_clause = ''
+        order_clause = 'ORDER BY e.razao_social'
+
+    # Limite
+    sem_limite = data.get('sem_limite', False)
+    if sem_limite:
+        limit_clause = ''
+    else:
+        limit = min(int(data.get('limit', 500)), 10000)
+        limit_clause = f'LIMIT {limit}'
+
+    sql_raw = (q['sql']
+               .replace('{DISTINCT_CNPJ}', distinct_clause)
+               .replace('{WHERE_EXTRA}', where_extra)
+               .replace('{ORDER_CLAUSE}', order_clause)
+               .replace('{LIMIT_CLAUSE}', limit_clause))
+
+    try:
+        rows = execute_query(sql_raw, params if params else None)
+        columns = list(rows[0].keys()) if rows else []
+        return jsonify({'ok': True, 'columns': columns, 'rows': rows, 'total': len(rows)})
+    except Exception as e:
+        import traceback
+        return jsonify({'ok': False, 'error': str(e), 'detail': traceback.format_exc()})
+
+
+@query_bp.route('/cnae_search')
+def cnae_search():
+    q = request.args.get('q', '').strip()
+    if len(q) < 2:
+        return jsonify({'results': []})
+    try:
+        # Search by code or description
+        sql = """
+            SELECT codigo_cnae, descricao_cnae
+            FROM cnaes
+            WHERE codigo_cnae ILIKE %s OR descricao_cnae ILIKE %s
+            ORDER BY
+                CASE WHEN codigo_cnae ILIKE %s THEN 0 ELSE 1 END,
+                descricao_cnae
+            LIMIT 20
+        """
+        pattern = f'%{q}%'
+        rows = execute_query(sql, (pattern, pattern, f'{q}%'))
+        return jsonify({'results': rows})
+    except Exception as e:
+        return jsonify({'results': [], 'error': str(e)})
